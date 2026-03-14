@@ -193,7 +193,7 @@ if (isModuleEnabled('sd')) {
         try {
             const { width, height, prompt } = request.body;
             const size = `${width}x${height}`;
-            console.log(`[IMAGE] Generating image: model=${navyImageModel}, size=${size}..."`);
+            console.log(`[IMAGE] Generating image: model=${navyImageModel}, size=${size}...`);
 
             let b64_json;
 
