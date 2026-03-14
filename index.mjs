@@ -7,7 +7,7 @@ import { request as undiciRequest } from 'undici';
 import FormData from 'form-data';
 
 const fastify = Fastify({
-    logger: false,
+    logger: { level: 'warn' },
     bodyLimit: 104857600, // 100MB
 });
 
@@ -65,69 +65,152 @@ fastify.get('/api/modules', async (_request, reply) => {
 if (isModuleEnabled('sd')) {
     const navyImageModel = config.navy?.models?.image ?? 'flux.1-schnell';
 
+    const GEMINI_IMAGE_MODELS = new Set([
+        'gemini-3.1-flash-image-preview',
+        'gemini-2.5-flash-image',
+        'gemini-3-pro-image-preview'
+    ]);
+
+    function isGeminiImageModel(model) {
+        return GEMINI_IMAGE_MODELS.has(model);
+    }
+
+    async function generateImageViaGemini(prompt, model) {
+        const response = await undiciRequest(`${navyBaseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${navyApiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: model,
+                messages: [
+                    { role: 'user', content: prompt },
+                ],
+                extra_body: {
+                    google: {
+                        response_modalities: ['IMAGE'],
+                    },
+                },
+            }),
+        });
+
+        if (response.statusCode !== 200) {
+            const errorText = await response.body.text();
+            throw new Error(`Gemini image generation failed (${response.statusCode}): ${errorText}`);
+        }
+
+        const result = await response.body.json();
+        const message = result.choices?.[0]?.message;
+
+        if (!message) {
+            throw new Error('No message in Gemini response');
+        }
+
+        if (message.images && Array.isArray(message.images) && message.images.length > 0) {
+            const imageObj = message.images[0];
+            const imageUrl = imageObj.image_url?.url || imageObj.url || '';
+
+            if (imageUrl.startsWith('data:image/')) {
+                const base64Match = imageUrl.match(/^data:image\/[^;]+;base64,(.+)$/);
+                if (base64Match) {
+                    return base64Match[1];
+                }
+            }
+
+            if (imageUrl.startsWith('http')) {
+                const imgResponse = await undiciRequest(imageUrl);
+                if (imgResponse.statusCode === 200) {
+                    const buffer = await imgResponse.body.arrayBuffer();
+                    return Buffer.from(buffer).toString('base64');
+                }
+            }
+        }
+
+        const content = message.content || '';
+        if (content.startsWith('data:image/')) {
+            const base64Match = content.match(/^data:image\/[^;]+;base64,(.+)$/);
+            if (base64Match) {
+                return base64Match[1];
+            }
+        }
+
+        throw new Error('No image data found in Gemini response');
+    }
+
+    async function generateImageViaImageApi(prompt, model, size) {
+        const response = await undiciRequest(`${navyBaseUrl}/images/generations`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${navyApiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prompt,
+                model,
+                size,
+            }),
+        });
+
+        if (response.statusCode !== 200) {
+            const errorText = await response.body.text();
+            throw new Error(`Image generation failed (${response.statusCode}): ${errorText}`);
+        }
+
+        const result = await response.body.json();
+
+        if (!result.data?.[0]) {
+            throw new Error('No image data found');
+        }
+
+        const imageData = result.data[0];
+
+        if (imageData.b64_json) {
+            return imageData.b64_json;
+        }
+
+        if (imageData.url) {
+            if (imageData.url.startsWith('data:image/')) {
+                const base64Match = imageData.url.match(/^data:image\/[^;]+;base64,(.+)$/);
+                if (base64Match) {
+                    return base64Match[1];
+                }
+                throw new Error('Invalid data URI format');
+            }
+
+            const imgResponse = await undiciRequest(imageData.url);
+            if (imgResponse.statusCode !== 200) {
+                throw new Error('Failed to fetch image from URL');
+            }
+            const buffer = await imgResponse.body.arrayBuffer();
+            return Buffer.from(buffer).toString('base64');
+        }
+
+        throw new Error('No valid image data found in response');
+    }
+
     fastify.post('/api/image', async (request, reply) => {
         try {
             const { width, height, prompt } = request.body;
             const size = `${width}x${height}`;
-
-            const response = await undiciRequest(`${navyBaseUrl}/images/generations`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${navyApiKey}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    prompt,
-                    model: navyImageModel,
-                    size,
-                }),
-            });
-
-            if (response.statusCode !== 200) {
-                const errorText = await response.body.text();
-                console.error('Image generation failed:', errorText);
-                return reply.code(500).send();
-            }
-
-            const result = await response.body.json();
-
-            if (!result.data?.[0]) {
-                console.error('No image data found');
-                return reply.code(500).send();
-            }
+            console.log(`[IMAGE] Generating image: model=${navyImageModel}, size=${size}..."`);
 
             let b64_json;
-            const imageData = result.data[0];
 
-            if (imageData.b64_json) {
-                b64_json = imageData.b64_json;
-            } else if (imageData.url) {
-                if (imageData.url.startsWith('data:image/')) {
-                    const base64Match = imageData.url.match(/^data:image\/[^;]+;base64,(.+)$/);
-                    if (base64Match) {
-                        b64_json = base64Match[1];
-                    } else {
-                        console.error('Invalid data URI format');
-                        return reply.code(500).send();
-                    }
-                } else {
-                    const imgResponse = await undiciRequest(imageData.url);
-                    if (imgResponse.statusCode !== 200) {
-                        console.error('Failed to fetch image from URL');
-                        return reply.code(500).send();
-                    }
-                    const buffer = await imgResponse.body.arrayBuffer();
-                    b64_json = Buffer.from(buffer).toString('base64');
-                }
+            if (isGeminiImageModel(navyImageModel)) {
+                console.log(`[IMAGE] Using Gemini chat completions for model: ${navyImageModel}`);
+                b64_json = await generateImageViaGemini(prompt, navyImageModel);
             } else {
-                console.error('No valid image data found in response');
-                return reply.code(500).send();
+                console.log(`[IMAGE] Using images/generations API for model: ${navyImageModel}`);
+                b64_json = await generateImageViaImageApi(prompt, navyImageModel, size);
             }
 
+            console.log(`[IMAGE] Success, returning base64 image (${b64_json.length} chars)`);
             return reply.send({ image: b64_json });
         } catch (error) {
-            console.error('Image generation failed:', error);
-            return reply.code(500).send();
+            console.error('[IMAGE] Generation failed:', error.message || error);
+            if (error.stack) console.error('[IMAGE] Stack:', error.stack);
+            return reply.code(500).send({ error: error.message || 'Image generation failed' });
         }
     });
 
