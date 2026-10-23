@@ -1,0 +1,26 @@
+{
+  "name": "sillytavern-navyai",
+  "version": "2.0.0",
+  "description": "A SillyTavern Extras server using NavyAI.",
+  "main": "index.mjs",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "start": "node index.mjs",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.1",
+    "@fastify/multipart": "^10.1.6",
+    "@security-patched/localtunnel": "^2.0.2-secpatched.5",
+    "fastify": "^5.12.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0"
+  }
+}

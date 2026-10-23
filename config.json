@@ -1,0 +1,62 @@
+{
+  "server": {
+    "port": 5100,
+    "listen": false,
+    "publicTunnel": false,
+    "apiKey": ""
+  },
+  "navy": {
+    "apiKey": "YOUR_NAVY_API_KEY_HERE",
+    "apiEndpoint": "https://api.navy/v1",
+    "imageApi": "auto",
+    "timeoutMs": 120000,
+    "models": {
+      "image": "flux.2-klein",
+      "whisper": "whisper-1",
+      "summarization": "glm-5.3-flash",
+      "classification": "glm-5.3-flash",
+      "captioning": "glm-5.3-flash",
+      "embedding": "text-embedding-3-small"
+    }
+  },
+  "modules": {
+    "disabled": []
+  },
+  "prompts": {
+    "classification": {
+      "instruction": "Classify the emotion of the following message. Output just one word, e.g. 'joy' or 'anger'. Choose only one of the following labels:",
+      "labels": [
+        "admiration",
+        "amusement",
+        "anger",
+        "annoyance",
+        "approval",
+        "caring",
+        "confusion",
+        "curiosity",
+        "desire",
+        "disappointment",
+        "disapproval",
+        "disgust",
+        "embarrassment",
+        "excitement",
+        "fear",
+        "gratitude",
+        "grief",
+        "joy",
+        "love",
+        "nervousness",
+        "optimism",
+        "pride",
+        "realization",
+        "relief",
+        "remorse",
+        "sadness",
+        "surprise",
+        "neutral"
+      ]
+    },
+    "summarization": "Summarize the most important facts and events in the story so far. Limit the summary to 500 words or less. Your response should include nothing but the summary.",
+    "captioning": "Provide an accurate and detailed description of the image."
+  }
+}
